@@ -527,9 +527,9 @@ PROVIDER_ZHIPU_INTL_CODINGPLAN = OpenAIProvider(
     support_connection_check=False,
 )
 
-PROVIDER_COPAW = OpenAIProvider(
-    id="copaw-local",
-    name="CoPaw Local",
+PROVIDER_QWENPAW = OpenAIProvider(
+    id="qwenpaw-local",
+    name="QwenPaw Local",
     is_local=True,
     require_api_key=False,
 )
@@ -708,7 +708,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 pass
 
     def _init_builtins(self):
-        self._add_builtin(PROVIDER_COPAW)
+        self._add_builtin(PROVIDER_QWENPAW)
         self._add_builtin(PROVIDER_OLLAMA)
         self._add_builtin(PROVIDER_LMSTUDIO)
         self._add_builtin(PROVIDER_MODELSCOPE)
@@ -757,9 +757,21 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Helper to return plugin provider info as async task."""
         return provider_info
 
+    @staticmethod
+    def _normalize_provider_id(provider_id: str) -> str:
+        """Normalize provider ID for backward compatibility.
+
+        Maps legacy 'copaw-local' to 'qwenpaw-local'.
+        """
+        if provider_id == "copaw-local":
+            return "qwenpaw-local"
+        return provider_id
+
     def get_provider(self, provider_id: str) -> Provider | None:
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
+        # Normalize provider ID for backward compatibility
+        provider_id = self._normalize_provider_id(provider_id)
         # Check plugin providers first
         if provider_id in self.plugin_providers:
             plugin_provider = self.plugin_providers[provider_id]
@@ -786,6 +798,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # This will be called when the user edits a provider's settings in the
         # UI. It should update the in-memory provider instance and persist the
         # changes to providers.json.
+        # Normalize provider ID for backward compatibility
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return False
@@ -811,7 +825,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """Schedule background restore of the active local model server."""
         task = asyncio.create_task(
             self._resume_local_model(local_manager),
-            name="copaw-local-model-resume",
+            name="qwenpaw-local-model-resume",
         )
         task.add_done_callback(self._on_local_model_resume_done)
 
@@ -835,6 +849,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
     ) -> List[ModelInfo]:
         """Fetch the list of available models from a provider and update."""
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return []
@@ -902,6 +917,8 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         # Set the active provider and model for the agent. This will update
         # providers.json and determine which provider/model is used when the
         # agent creates chat model instances.
+        # Normalize provider ID for backward compatibility
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -954,6 +971,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
         model_info: ModelInfo,
     ) -> ProviderInfo:
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -973,6 +991,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         config: Dict,
     ) -> ProviderInfo:
         """Update per-model configuration and persist to disk."""
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -994,6 +1013,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         provider_id: str,
         model_id: str,
     ) -> ProviderInfo:
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             raise ProviderError(
@@ -1012,6 +1032,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         model_id: str,
     ) -> dict:
         """Probe a model's multimodal capabilities and persist the result."""
+        provider_id = self._normalize_provider_id(provider_id)
         provider = self.get_provider(provider_id)
         if not provider:
             return {"error": f"Provider '{provider_id}' not found"}
@@ -1199,6 +1220,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         """
         if self.active_model is None:
             return False
+        # Normalize provider ID for backward compatibility
+        if provider_id is not None:
+            provider_id = self._normalize_provider_id(provider_id)
         if (
             provider_id is not None
             and self.active_model.provider_id != provider_id
@@ -1225,6 +1249,59 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         except Exception:
             return None
 
+    def _migrate_copaw_config(self) -> None:
+        """Migrate copaw-local provider config to qwenpaw-local."""
+        # 1. Migrate active model configuration (only provider_id)
+        if (
+            self.active_model
+            and self.active_model.provider_id == "copaw-local"
+        ):
+            self.active_model.provider_id = "qwenpaw-local"
+            self.save_active_model(self.active_model)
+            logger.info(
+                "Migrated active model provider from "
+                "'copaw-local' to 'qwenpaw-local'",
+            )
+
+        # 2. Migrate stored provider config file
+        copaw_config_path = self.builtin_path / "copaw-local.json"
+        if not copaw_config_path.exists():
+            return
+
+        try:
+            # Load old config and apply to new provider instance
+            with open(copaw_config_path, "r", encoding="utf-8") as f:
+                old_config = json.load(f)
+
+            # Get the new built-in provider instance
+            provider = self.builtin_providers.get("qwenpaw-local")
+            if not provider:
+                return
+
+            # Apply migrated configuration (preserve extra_models as-is)
+            if "extra_models" in old_config:
+                provider.extra_models = [
+                    ModelInfo.model_validate(model)
+                    for model in old_config["extra_models"]
+                ]
+            if "base_url" in old_config:
+                provider.base_url = old_config["base_url"]
+            if "generate_kwargs" in old_config:
+                provider.generate_kwargs = old_config["generate_kwargs"]
+
+            # Save using standard persistence logic (with encryption)
+            self._save_provider(provider, is_builtin=True)
+
+            # Remove old config file
+            copaw_config_path.unlink()
+            logger.info(
+                "Migrated provider config from "
+                "'copaw-local.json' to 'qwenpaw-local.json'",
+            )
+        except Exception as exc:
+            logger.warning("Failed to migrate copaw-local config: %s", exc)
+
+    # pylint: disable=too-many-branches
     def _migrate_legacy_providers(self):
         """Migrate from legacy providers.json format to the new structure."""
         legacy_path = SECRET_DIR / "providers.json"
@@ -1272,9 +1349,12 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
                 if "chat_model" in data:
                     custom_provider.chat_model = data["chat_model"]
                 self._save_provider(custom_provider, is_builtin=False)
-            # Migrate active model
+            # Migrate active model (only provider_id, not model)
             if active_model:
                 try:
+                    # Convert legacy copaw-local provider_id
+                    if active_model.get("provider_id") == "copaw-local":
+                        active_model["provider_id"] = "qwenpaw-local"
                     self.active_model = ModelSlotConfig.model_validate(
                         active_model,
                     )
@@ -1325,6 +1405,9 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
         if active_model:
             self.active_model = active_model
 
+        # Migrate copaw-local to qwenpaw-local for backwards compatibility
+        self._migrate_copaw_config()
+
     def _apply_default_annotations(self):
         """Apply doc-based default annotations for unprobed models.
 
@@ -1364,7 +1447,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
 
     async def _resume_local_model(self, local_manager) -> None:
         """Resume the active local model server from the previous run."""
-        local_models = self.get_provider("copaw-local").extra_models
+        local_models = self.get_provider("qwenpaw-local").extra_models
         model_id = local_models[0].id if local_models else None
         if model_id is None:
             return
@@ -1396,7 +1479,7 @@ class ProviderManager:  # pylint: disable=too-many-public-methods
             return
 
         self.update_provider(
-            "copaw-local",
+            "qwenpaw-local",
             {
                 "base_url": f"http://127.0.0.1:{setup_result.port}/v1",
                 "extra_models": [setup_result.model_info],

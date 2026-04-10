@@ -83,14 +83,14 @@ class ModelManager:
         if memory_gb <= 8:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-Flash-2B-Q4_K_M",
-                    name="CoPaw-Flash-2B-Q4_K_M",
+                    id="AgentScope/QwenPaw-Flash-2B-Q4_K_M",
+                    name="QwenPaw-Flash-2B-Q4_K_M",
                     size_bytes=1560460768,
                     source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-Flash-2B-Q8_0",
-                    name="CoPaw-Flash-2B-Q8_0",
+                    id="AgentScope/QwenPaw-Flash-2B-Q8_0",
+                    name="QwenPaw-Flash-2B-Q8_0",
                     size_bytes=2552356320,
                     source=DownloadSource.MODELSCOPE,
                 ),
@@ -98,14 +98,14 @@ class ModelManager:
         elif memory_gb <= 16:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-Flash-4B-Q4_K_M",
-                    name="CoPaw-Flash-4B-Q4_K_M",
+                    id="AgentScope/QwenPaw-Flash-4B-Q4_K_M",
+                    name="QwenPaw-Flash-4B-Q4_K_M",
                     size_bytes=3066384736,
                     source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-Flash-4B-Q8_0",
-                    name="CoPaw-Flash-4B-Q8_0",
+                    id="AgentScope/QwenPaw-Flash-4B-Q8_0",
+                    name="QwenPaw-Flash-4B-Q8_0",
                     size_bytes=5157833056,
                     source=DownloadSource.MODELSCOPE,
                 ),
@@ -113,14 +113,14 @@ class ModelManager:
         else:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-Flash-9B-Q4_K_M",
-                    name="CoPaw-Flash-9B-Q4_K_M",
+                    id="AgentScope/QwenPaw-Flash-9B-Q4_K_M",
+                    name="QwenPaw-Flash-9B-Q4_K_M",
                     size_bytes=5476080128,
                     source=DownloadSource.MODELSCOPE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/CoPaw-Flash-9B-Q8_0",
-                    name="CoPaw-Flash-9B-Q8_0",
+                    id="AgentScope/QwenPaw-Flash-9B-Q8_0",
+                    name="QwenPaw-Flash-9B-Q8_0",
                     size_bytes=10590617600,
                     source=DownloadSource.MODELSCOPE,
                 ),
@@ -132,14 +132,18 @@ class ModelManager:
 
         return models
 
+    def _check_model_exists(self, model_id: str) -> bool:
+        """Check if a model directory contains .gguf files."""
+        local_path = self._model_dir.joinpath(*model_id.split("/"))
+        return local_path.exists() and any(local_path.glob("*.gguf"))
+
     def get_model_dir(self, model_id: str) -> Path:
         """Get the expected local path for a given model id."""
         return self._model_dir.joinpath(*model_id.split("/"))
 
     def is_downloaded(self, model_id: str) -> bool:
         """Check if a model id is already downloaded."""
-        local_path = self.get_model_dir(model_id)
-        return local_path.exists() and any(local_path.glob("*.gguf"))
+        return self._check_model_exists(model_id)
 
     def list_downloaded_models(self) -> list[LocalModelInfo]:
         """Return all downloaded local model repositories."""
@@ -206,9 +210,9 @@ class ModelManager:
             "staging_dir": str(staging_dir),
         }
         spec = ProcessDownloadTaskSpec(
-            process_name=f"copaw-model-download-{task_id}",
+            process_name=f"qwenpaw-model-download-{task_id}",
             command=[
-                "copaw-model-download",
+                "qwenpaw-model-download",
                 repo_id,
                 resolved_source.value,
             ],
