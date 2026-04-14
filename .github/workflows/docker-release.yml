@@ -117,7 +117,7 @@ if [ ! -f config.json ]; then
 fi
 echo '✅ config.json generated'
 grep -q 'port' config.json
-if [ \$? -ne 0 ]; then
+if [ $? -ne 0 ]; then
     echo '❌ config.json missing expected fields'
     exit 1
 fi
