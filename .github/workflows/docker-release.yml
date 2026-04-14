@@ -54,27 +54,51 @@ jobs:
           docker load -i ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
           echo "✅ docker load test passed"
 
-      - name: Test container startup
+      - name: Full container test (entrypoint + dependencies + startup + port)
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
-          echo "Testing container startup..."
-          # 启动容器，等待 10 秒看是否正常运行，检查进程
-          docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:${VERSION}
-          sleep 10
-          # 检查容器是否还在运行
-          if ! docker ps | grep -q qwenpaw-test; then
-            echo "❌ Container failed to start"
-            docker logs qwenpaw-test
+          echo "=== 1. Check entry script exists and is executable"
+          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} ls -la /app/
+          if [ $? -ne 0 ]; then
+            echo "❌ Entry directory /app/ not found"
             exit 1
           fi
-          # 测试端口监听
-          if ! curl --connect-timeout 5 http://localhost:8088/ > /dev/null 2>&1; then
+          echo "✅ Entry directory check passed"
+
+          echo "=== 2. Test Python module import (check dependencies)"
+          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} python3 -c "import qwenpaw; print('qwenpaw imported successfully'); from qwenpaw.token_usage.model_wrapper import ModelWrapper; print('model_wrapper imported successfully'); print('All dependencies OK')"
+          if [ $? -ne 0 ]; then
+            echo "❌ Python import failed, missing dependency error"
+            exit 1
+          fi
+          echo "✅ All Python dependencies check passed"
+
+          echo "=== 3. Test container startup and port"
+          # 启动容器，后台运行
+          docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:${VERSION}
+          # 等待服务启动
+          sleep 15
+          # 检查容器是否还在运行（没有崩溃退出）
+          if ! docker ps | grep -q qwenpaw-test; then
+            echo "❌ Container crashed on startup"
+            docker logs qwenpaw-test
+            docker rm qwenpaw-test -f
+            exit 1
+          fi
+          echo "✅ Container is running"
+
+          # 测试端口响应
+          if ! curl --connect-timeout 8 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
             echo "❌ Port 8088 not responding"
             docker logs qwenpaw-test
+            docker stop qwenpaw-test
+            docker rm qwenpaw-test
             exit 1
           fi
-          echo "✅ Container startup and port test passed"
+          echo "✅ Port 8088 responding successfully"
+
+          echo "=== All tests passed!"
           # 清理
           docker stop qwenpaw-test
           docker rm qwenpaw-test
