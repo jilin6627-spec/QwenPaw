@@ -75,8 +75,8 @@ jobs:
           echo "✅ Entry directory check passed"
 
           echo "=== 2. Test Python module import + verify vLLM fix"
-          # Check the fixed model_wrapper, class name is TokenRecordingModelWrapper
-          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} python3 -c "
+          # Use here-doc to avoid escape issues
+          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} python3 << 'EOF'
 import qwenpaw
 print('qwenpaw imported successfully')
 from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
@@ -84,13 +84,13 @@ print('✅ TokenRecordingModelWrapper imported successfully (our fix is present)
 # Verify the fix: check that tool_choice == 'auto' is handled
 import inspect
 source = inspect.getsource(TokenRecordingModelWrapper.__call__)
-if 'tool_choice == \"auto\"' in source and 'tool_choice = None' in source:
+if 'tool_choice == "auto"' in source and 'tool_choice = None' in source:
     print('✅ vLLM fix (remove tool_choice=auto) confirmed')
 else:
     print('❌ vLLM fix not found')
     exit(1)
 print('All dependency checks passed')
-"
+EOF
           if [ $? -ne 0 ]; then
             echo "❌ Python import or fix check failed"
             exit 1
@@ -117,7 +117,7 @@ if [ ! -f config.json ]; then
 fi
 echo '✅ config.json generated'
 grep -q 'port' config.json
-if [ $? -ne 0 ]; then
+if [ \$? -ne 0 ]; then
     echo '❌ config.json missing expected fields'
     exit 1
 fi
