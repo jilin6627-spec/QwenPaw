@@ -43,11 +43,16 @@ jobs:
             -t ${{ env.IMAGE_NAME }}:${VERSION} \
             --load .
 
-      - name: Save image to tar.gz
+      - name: Test docker load
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
+          echo "Testing docker load..."
           docker save ${{ env.IMAGE_NAME }}:${VERSION} | gzip -9 > ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
+          # 测试加载
+          docker rmi ${{ env.IMAGE_NAME }}:${VERSION} -f || true
+          docker load -i ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
+          echo "✅ docker load test passed"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
