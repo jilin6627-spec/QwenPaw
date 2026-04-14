@@ -17,6 +17,7 @@ on:
 
 env:
   IMAGE_NAME: qwenpaw
+  IMAGE_TAG: ${{ github.event.inputs.version || github.sha }}
   QWENPAW_DISABLED_CHANNELS: "imessage"
 
 jobs:
@@ -31,43 +32,29 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Set version
-        id: vars
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          else
-            # For push trigger, use commit sha as version
-            echo "version=${GITHUB_SHA:0:12}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Build and load
-        env:
-          VERSION: ${{ steps.vars.outputs.version }}
         run: |
           docker buildx build --platform linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
-            -t ${{ env.IMAGE_NAME }}:${VERSION} \
+            -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
             --load .
 
       - name: Test docker load
-        env:
-          VERSION: ${{ steps.vars.outputs.version }}
         run: |
           echo "Testing docker load..."
-          docker save ${{ env.IMAGE_NAME }}:${VERSION} | gzip -9 > ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
+          docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | gzip -9 > ${IMAGE_NAME}-${IMAGE_TAG:0:12}-arm64.tar.gz
           # 测试加载
-          docker rmi ${{ env.IMAGE_NAME }}:${VERSION} -f || true
-          docker load -i ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
+          docker rmi ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -f || true
+          docker load -i ${IMAGE_NAME}-${IMAGE_TAG:0:12}-arm64.tar.gz
           echo "✅ docker load test passed"
 
       - name: Full container test (entrypoint + dependencies + cli + init + startup + port)
-        env:
-          VERSION: ${{ steps.vars.outputs.version }}
         run: |
+          TAG_SHORT=${{ env.IMAGE_TAG:0:12 }}
+
           echo "=== 1. Check entry directory exists"
-          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} ls -la /app/
+          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT ls -la /app/
           if [ $? -ne 0 ]; then
             echo "❌ Entry directory /app/ not found"
             exit 1
@@ -75,13 +62,11 @@ jobs:
           echo "✅ Entry directory check passed"
 
           echo "=== 2. Test Python module import + verify vLLM fix"
-          # Use here-doc to avoid escape issues
-          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} python3 << 'EOF'
+          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT python3 << 'EOF'
 import qwenpaw
 print('qwenpaw imported successfully')
 from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 print('✅ TokenRecordingModelWrapper imported successfully (our fix is present)')
-# Verify the fix: check that tool_choice == 'auto' is handled
 import inspect
 source = inspect.getsource(TokenRecordingModelWrapper.__call__)
 if 'tool_choice == "auto"' in source and 'tool_choice = None' in source:
@@ -98,7 +83,7 @@ EOF
           echo "✅ All Python dependencies + vLLM fix check passed"
 
           echo "=== 3. Test qwenpaw CLI works"
-          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} qwenpaw --help
+          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT qwenpaw --help
           if [ $? -ne 0 ]; then
             echo "❌ qwenpaw --help failed"
             exit 1
@@ -106,8 +91,7 @@ EOF
           echo "✅ qwenpaw CLI help works"
 
           echo "=== 4. Test qwenpaw init (generate config.json)"
-          # Test init in temp directory
-          docker run --rm ${{ env.IMAGE_NAME }}:${VERSION} sh -c "
+          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT sh -c "
 mkdir -p /tmp/test-init
 cd /tmp/test-init
 qwenpaw init --defaults --accept-security
@@ -131,11 +115,8 @@ rm -rf /tmp/test-init
           echo "✅ qwenpaw init works correctly"
 
           echo "=== 5. Test container startup and web port"
-          # 启动容器，后台运行
-          docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:${VERSION}
-          # 等待服务启动
+          docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:$TAG_SHORT
           sleep 25
-          # 检查容器是否还在运行（没有崩溃退出）
           if ! docker ps | grep -q qwenpaw-test; then
             echo "❌ Container crashed on startup"
             docker logs qwenpaw-test
@@ -144,7 +125,6 @@ rm -rf /tmp/test-init
           fi
           echo "✅ Container is running stable"
 
-          # 测试端口响应
           if ! curl --connect-timeout 12 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
             echo "❌ Port 8088 not responding"
             docker logs qwenpaw-test
@@ -152,7 +132,6 @@ rm -rf /tmp/test-init
             docker rm qwenpaw-test
             exit 1
           fi
-          # 检查返回内容是否包含 HTML
           grep -q "<!DOCTYPE html>" /tmp/curl_out.txt
           if [ $? -ne 0 ]; then
             echo "❌ Port 8088 response is not valid HTML"
@@ -170,13 +149,12 @@ rm -rf /tmp/test-init
           echo "✅ 4. qwenpaw init OK"
           echo "✅ 5. Container running OK"
           echo "✅ 6. Port 8088 OK"
-          # 清理
           docker stop qwenpaw-test
           docker rm qwenpaw-test
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.IMAGE_NAME }}-${{ steps.vars.outputs.version }}-arm64.tar.gz
-          path: ${{ env.IMAGE_NAME }}-${{ steps.vars.outputs.version }}-arm64.tar.gz
+          name: qwenpaw-${{ env.IMAGE_TAG:0:12 }}-arm64.tar.gz
+          path: qwenpaw-${{ env.IMAGE_TAG:0:12 }}-arm64.tar.gz
           retention-days: 7
