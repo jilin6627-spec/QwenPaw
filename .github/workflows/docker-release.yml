@@ -16,7 +16,7 @@ on:
 
 env:
   IMAGE_NAME: qwenpaw
-  IMAGE_TAG: ${{ github.event.inputs.version }}
+  IMAGE_TAG: ${{ github.event.inputs.version || github.sha }}
   QWENPAW_DISABLED_CHANNELS: "imessage"
 
 jobs:
