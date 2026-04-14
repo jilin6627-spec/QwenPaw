@@ -4,6 +4,9 @@
 name: Docker Build (arm64) - Output as artifact
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
