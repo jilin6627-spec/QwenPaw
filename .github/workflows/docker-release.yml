@@ -1,6 +1,3 @@
-# Build QwenPaw multi-arch Docker image and push to DockerHub + Aliyun ACR on release.
-# Pre-release: update <version> and pre only.
-# Formal release: update <version>, pre and latest.
 name: Docker Build (arm64) - Output as artifact
 
 on:
@@ -10,14 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Image tag (e.g. v1.2.3 or v1.2.3-beta.1)"
+        description: "Image tag"
         required: false
         default: ""
         type: string
 
 env:
   IMAGE_NAME: qwenpaw
-  IMAGE_TAG: ${{ github.event.inputs.version == '' && github.sha || github.event.inputs.version }}
   QWENPAW_DISABLED_CHANNELS: "imessage"
 
 jobs:
@@ -29,6 +25,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Set version
+        id: vars
+        run: |
+          if [ "$VERSION_INPUT" != "" ]; then
+            echo "version=$VERSION_INPUT" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_SHA:0:12}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -39,28 +46,30 @@ jobs:
 
       - name: Build and load
         run: |
+          VERSION=${{ steps.vars.outputs.version }}
           docker buildx build --platform linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
-            -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            -t $IMAGE_NAME:$VERSION \
             --load .
 
       - name: Test docker load
         run: |
+          VERSION=${{ steps.vars.outputs.version }}
           echo "Testing docker load..."
-          TAG_SHORT=${{ env.IMAGE_TAG:0:12 }}
-          docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | gzip -9 > ${IMAGE_NAME}-${TAG_SHORT}-arm64.tar.gz
-          # 测试加载
-          docker rmi ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -f || true
+          TAG_SHORT=$VERSION
+          docker save $IMAGE_NAME:$VERSION | gzip -9 > ${IMAGE_NAME}-${TAG_SHORT}-arm64.tar.gz
+          docker rmi $IMAGE_NAME:$VERSION -f || true
           docker load -i ${IMAGE_NAME}-${TAG_SHORT}-arm64.tar.gz
           echo "✅ docker load test passed"
 
       - name: Full container test (entrypoint + dependencies + cli + init + startup + port)
         run: |
-          TAG_SHORT=${{ env.IMAGE_TAG:0:12 }}
+          VERSION=${{ steps.vars.outputs.version }}
+          TAG_SHORT=$VERSION
 
           echo "=== 1. Check entry directory exists"
-          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT ls -la /app/
+          docker run --rm $IMAGE_NAME:$TAG_SHORT ls -la /app/
           if [ $? -ne 0 ]; then
             echo "❌ Entry directory /app/ not found"
             exit 1
@@ -68,7 +77,7 @@ jobs:
           echo "✅ Entry directory check passed"
 
           echo "=== 2. Test Python module import + verify vLLM fix"
-          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT python3 << 'EOF'
+          docker run --rm $IMAGE_NAME:$TAG_SHORT python3 << 'EOF'
 import qwenpaw
 print('qwenpaw imported successfully')
 from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
@@ -89,7 +98,7 @@ EOF
           echo "✅ All Python dependencies + vLLM fix check passed"
 
           echo "=== 3. Test qwenpaw CLI works"
-          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT qwenpaw --help
+          docker run --rm $IMAGE_NAME:$TAG_SHORT qwenpaw --help
           if [ $? -ne 0 ]; then
             echo "❌ qwenpaw --help failed"
             exit 1
@@ -97,7 +106,7 @@ EOF
           echo "✅ qwenpaw CLI help works"
 
           echo "=== 4. Test qwenpaw init (generate config.json)"
-          docker run --rm ${{ env.IMAGE_NAME }}:$TAG_SHORT sh -c "
+          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "
 mkdir -p /tmp/test-init
 cd /tmp/test-init
 qwenpaw init --defaults --accept-security
@@ -121,7 +130,7 @@ rm -rf /tmp/test-init
           echo "✅ qwenpaw init works correctly"
 
           echo "=== 5. Test container startup and web port"
-          docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:$TAG_SHORT
+          docker run -d --name qwenpaw-test -p 8088:8088 $IMAGE_NAME:$TAG_SHORT
           sleep 30
           if ! docker ps | grep -q qwenpaw-test; then
             echo "❌ Container crashed on startup"
@@ -161,6 +170,6 @@ rm -rf /tmp/test-init
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: qwenpaw-${{ env.IMAGE_TAG:0:12 }}-arm64.tar.gz
-          path: qwenpaw-${{ env.IMAGE_TAG:0:12 }}-arm64.tar.gz
+          name: qwenpaw-${{ steps.vars.outputs.version }}-arm64.tar.gz
+          path: qwenpaw-${{ steps.vars.outputs.version }}-arm64.tar.gz
           retention-days: 7
