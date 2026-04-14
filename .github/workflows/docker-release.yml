@@ -1,5 +1,4 @@
 name: Docker Build (arm64) - Output as artifact
-
 on:
   push:
     branches:
@@ -11,11 +10,9 @@ on:
         required: false
         default: ""
         type: string
-
 env:
   IMAGE_NAME: qwenpaw
   QWENPAW_DISABLED_CHANNELS: "imessage"
-
 jobs:
   build-and-export:
     runs-on: ubuntu-latest
@@ -24,7 +21,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - name: Set version
         id: vars
         run: |
@@ -35,15 +31,12 @@ jobs:
           fi
         env:
           VERSION_INPUT: ${{ github.event.inputs.version }}
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Build and load
         run: |
           VERSION=${{ steps.vars.outputs.version }}
@@ -52,7 +45,6 @@ jobs:
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
             -t $IMAGE_NAME:$VERSION \
             --load .
-
       - name: Test docker load
         run: |
           VERSION=${{ steps.vars.outputs.version }}
@@ -62,12 +54,10 @@ jobs:
           docker rmi $IMAGE_NAME:$VERSION -f || true
           docker load -i ${IMAGE_NAME}-${TAG_SHORT}-arm64.tar.gz
           echo "✅ docker load test passed"
-
       - name: Full container test
         run: |
           VERSION=${{ steps.vars.outputs.version }}
           TAG_SHORT=$VERSION
-
           echo "=== 1. Check entry directory exists"
           docker run --rm $IMAGE_NAME:$TAG_SHORT ls -la /app/
           if [ $? -ne 0 ]; then
@@ -75,28 +65,13 @@ jobs:
             exit 1
           fi
           echo "✅ Entry directory check passed"
-
           echo "=== 2. Test Python module import + verify vLLM fix"
-          docker run --rm $IMAGE_NAME:$TAG_SHORT python3 << 'EOF'
-import qwenpaw
-print('qwenpaw imported successfully')
-from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
-print('✅ TokenRecordingModelWrapper imported successfully')
-import inspect
-source = inspect.getsource(TokenRecordingModelWrapper.__call__)
-if 'tool_choice == "auto"' in source and 'tool_choice = None' in source:
-    print('✅ vLLM fix (remove tool_choice=auto) confirmed')
-else:
-    print('❌ vLLM fix not found')
-    exit(1)
-print('All checks passed')
-EOF
+          docker run --rm $IMAGE_NAME:$TAG_SHORT python3 -c "import qwenpaw; print('qwenpaw imported successfully'); from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper; print('✅ TokenRecordingModelWrapper imported'); import inspect; source = inspect.getsource(TokenRecordingModelWrapper.__call__); exit(0 if 'tool_choice == \"auto\"' in source and 'tool_choice = None' in source else 1)"
           if [ $? -ne 0 ]; then
             echo "❌ Python import or fix check failed"
             exit 1
           fi
           echo "✅ All Python checks passed"
-
           echo "=== 3. Test qwenpaw CLI works"
           docker run --rm $IMAGE_NAME:$TAG_SHORT qwenpaw --help
           if [ $? -ne 0 ]; then
@@ -104,31 +79,13 @@ EOF
             exit 1
           fi
           echo "✅ qwenpaw CLI works"
-
           echo "=== 4. Test qwenpaw init generates config"
-          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "
-mkdir -p /tmp/test-init
-cd /tmp/test-init
-qwenpaw init --defaults --accept-security
-if [ ! -f config.json ]; then
-    echo '❌ config.json not generated'
-    exit 1
-fi
-echo '✅ config.json generated'
-grep -q 'port' config.json
-if [ $? -ne 0 ]; then
-    echo '❌ config.json missing port field'
-    exit 1
-fi
-echo '✅ config.json OK'
-rm -rf /tmp/test-init
-"
+          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "mkdir -p /tmp/test-init && cd /tmp/test-init && qwenpaw init --defaults --accept-security && [ -f config.json ] && grep -q 'port' config.json && rm -rf /tmp/test-init"
           if [ $? -ne 0 ]; then
             echo "❌ qwenpaw init failed"
             exit 1
           fi
           echo "✅ qwenpaw init works"
-
           echo "=== 5. Test container startup and port"
           docker run -d --name qwenpaw-test -p 8088:8088 $IMAGE_NAME:$TAG_SHORT
           sleep 30
@@ -139,7 +96,6 @@ rm -rf /tmp/test-init
             exit 1
           fi
           echo "✅ Container running"
-
           if ! curl --connect-timeout 15 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
             echo "❌ Port 8088 not responding"
             docker logs qwenpaw-test
@@ -156,7 +112,6 @@ rm -rf /tmp/test-init
             exit 1
           fi
           echo "✅ Port 8088 responding with valid HTML"
-
           echo "===== 👉 ALL TESTS PASSED! ====="
           echo "✅ Entry directory"
           echo "✅ Python import + vLLM fix"
@@ -166,7 +121,6 @@ rm -rf /tmp/test-init
           echo "✅ Port 8088"
           docker stop qwenpaw-test
           docker rm qwenpaw-test
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
