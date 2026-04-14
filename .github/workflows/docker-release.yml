@@ -16,8 +16,6 @@ on:
 
 env:
   IMAGE_NAME: qwenpaw
-  # GitHub Actions expression for default: use input version when available, else commit sha
-  IMAGE_TAG: ${{ github.event.inputs.version != '' && github.event.inputs.version || github.sha }}
   QWENPAW_DISABLED_CHANNELS: "imessage"
 
 jobs:
@@ -35,7 +33,12 @@ jobs:
       - name: Set version
         id: vars
         run: |
-          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            # For push trigger, use commit sha as version
+            echo "version=${GITHUB_SHA:0:12}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build and load
         env:
