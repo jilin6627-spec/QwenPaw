@@ -22,12 +22,17 @@ env:
 
 jobs:
   build-and-export:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -117,7 +122,7 @@ rm -rf /tmp/test-init
 
           echo "=== 5. Test container startup and web port"
           docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:$TAG_SHORT
-          sleep 25
+          sleep 30
           if ! docker ps | grep -q qwenpaw-test; then
             echo "❌ Container crashed on startup"
             docker logs qwenpaw-test
@@ -126,7 +131,7 @@ rm -rf /tmp/test-init
           fi
           echo "✅ Container is running stable"
 
-          if ! curl --connect-timeout 12 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
+          if ! curl --connect-timeout 15 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
             echo "❌ Port 8088 not responding"
             docker logs qwenpaw-test
             docker stop qwenpaw-test
