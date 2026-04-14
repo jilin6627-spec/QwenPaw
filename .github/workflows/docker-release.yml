@@ -17,7 +17,7 @@ on:
 
 env:
   IMAGE_NAME: qwenpaw
-  IMAGE_TAG: ${{ github.event.inputs.version || github.sha }}
+  IMAGE_TAG: ${{ github.event.inputs.version == '' && github.sha || github.event.inputs.version }}
   QWENPAW_DISABLED_CHANNELS: "imessage"
 
 jobs:
@@ -43,10 +43,11 @@ jobs:
       - name: Test docker load
         run: |
           echo "Testing docker load..."
-          docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | gzip -9 > ${IMAGE_NAME}-${IMAGE_TAG:0:12}-arm64.tar.gz
+          TAG_SHORT=${{ env.IMAGE_TAG:0:12 }}
+          docker save ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} | gzip -9 > ${IMAGE_NAME}-${TAG_SHORT}-arm64.tar.gz
           # 测试加载
           docker rmi ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} -f || true
-          docker load -i ${IMAGE_NAME}-${IMAGE_TAG:0:12}-arm64.tar.gz
+          docker load -i ${IMAGE_NAME}-${TAG_SHORT}-arm64.tar.gz
           echo "✅ docker load test passed"
 
       - name: Full container test (entrypoint + dependencies + cli + init + startup + port)
