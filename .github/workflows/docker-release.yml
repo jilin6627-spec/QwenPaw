@@ -54,6 +54,31 @@ jobs:
           docker load -i ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
           echo "✅ docker load test passed"
 
+      - name: Test container startup
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          echo "Testing container startup..."
+          # 启动容器，等待 10 秒看是否正常运行，检查进程
+          docker run -d --name qwenpaw-test -p 8088:8088 ${{ env.IMAGE_NAME }}:${VERSION}
+          sleep 10
+          # 检查容器是否还在运行
+          if ! docker ps | grep -q qwenpaw-test; then
+            echo "❌ Container failed to start"
+            docker logs qwenpaw-test
+            exit 1
+          fi
+          # 测试端口监听
+          if ! curl --connect-timeout 5 http://localhost:8088/ > /dev/null 2>&1; then
+            echo "❌ Port 8088 not responding"
+            docker logs qwenpaw-test
+            exit 1
+          fi
+          echo "✅ Container startup and port test passed"
+          # 清理
+          docker stop qwenpaw-test
+          docker rm qwenpaw-test
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
