@@ -33,7 +33,7 @@ jobs:
         run: |
           echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
 
-      - name: Build and export to tar.gz
+      - name: Build and load
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
@@ -41,8 +41,13 @@ jobs:
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
             -t ${{ env.IMAGE_NAME }}:${VERSION} \
-            --output type=tar,dest=${IMAGE_NAME}-${VERSION}-arm64.tar .
-          gzip -9 ${IMAGE_NAME}-${VERSION}-arm64.tar
+            --load .
+
+      - name: Save image to tar.gz
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          docker save ${{ env.IMAGE_NAME }}:${VERSION} | gzip -9 > ${IMAGE_NAME}-${VERSION}-arm64.tar.gz
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
