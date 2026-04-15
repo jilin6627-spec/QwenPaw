@@ -295,6 +295,69 @@ def build_system_prompt_from_working_dir(
     )
     prompt = builder.build()
 
+    # Add vLLM compatibility tool calling format when using vLLM OpenAI backend
+    def _is_vllm_openai_backend() -> bool:
+        """Check if current active model is using vLLM OpenAI compatible backend."""
+        try:
+            from ..config.config import load_config
+            from ..providers.provider_manager import ProviderManager
+            
+            config = load_config()
+            manager = ProviderManager.get_instance()
+            
+            # Get active model
+            from ..app.agent_context import get_current_agent_id
+            agent_id_current = get_current_agent_id()
+            if agent_id_current:
+                from ..config.config import load_agent_config
+                agent_config = load_agent_config(agent_id_current)
+                active_model = agent_config.active_model
+                if active_model:
+                    provider = manager.get_provider(active_model.provider_id)
+                    if provider:
+                        # Check if this is vLLM OpenAI backend
+                        # vLLM typically uses openai-compatible API endpoint
+                        if hasattr(provider, 'base_url') and provider.base_url:
+                            if 'vllm' in provider.base_url.lower() or 'vllm' in str(active_model.model).lower():
+                                return True
+                        # Also check by provider type
+                        if hasattr(provider, 'provider_type') and (provider.provider_type == 'openai' or provider.provider_type == 'openai-compat'):
+                            # If running on localhost, likely vLLM
+                            if hasattr(provider, 'base_url') and provider.base_url:
+                                if 'localhost' in provider.base_url or '127.0.0.1' in provider.base_url:
+                                    return True
+            return False
+        except Exception:
+            return False
+    
+    if _is_vllm_openai_backend():
+        # Add JSON tool calling format instructions for vLLM compatibility
+        vllm_prompt = """
+
+# Tool Calling Format (vLLM Compatibility)
+
+When you need to use a tool, output ONLY valid JSON in this format:
+
+{
+ "action": "tool",
+ "name": "<tool_name>",
+ "args": { ... }
+}
+
+When you have finished and have the final answer, output:
+
+{
+ "action": "final",
+ "answer": "..."
+}
+
+Rules:
+- Do NOT output explanation or natural language together with JSON
+- Only output ONE tool call per step
+- Make sure JSON is valid before outputting
+- Always use this format when calling tools"""
+        prompt += vllm_prompt
+
     # Add agent identity information at the beginning of the prompt
     if agent_id:
         identity_header = (

@@ -702,32 +702,161 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         # Fix: Omit tool_choice="auto" for vLLM compatibility
         if tool_choice == "auto":
             tool_choice = None
+            
+        # --- vLLM Compatibility: Client-side Agent Runtime with JSON tool parsing ---
+        # When using vLLM as OpenAI-compatible backend, tool_choice="auto" is rejected
+        # unless server started with --enable-auto-tool-choice. We implement a simple
+        # client-side agent loop that parses JSON tool calls directly from model output.
+        import json
+        import logging
+        from agentscope.message import Msg
+
+        MAX_STEPS = 8
+
+        def try_parse_json(text: str) -> dict | None:
+            """Try to parse JSON with simple error recovery."""
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Common fix: strip markdown code blocks
+                text = text.strip()
+                if text.startswith('```'):
+                    # Remove opening ```json
+                    text = text.split('\n', 1)[1]
+                    # Remove closing ```
+                    if text.rfind('```') != -1:
+                        text = text[:text.rfind('```')]
+                    text = text.strip()
+                    try:
+                        return json.loads(text)
+                    except json.JSONDecodeError:
+                        return None
+                return None
+
+        def run_tool(name: str, args: dict) -> str:
+            """Run registered tool."""
+            from qwenpaw.app.server.tools_registry import get_tool_manager
+            tm = get_tool_manager()
+            
+            tool = tm.get_tool(name)
+            if tool is None:
+                return f"error: unknown tool '{name}'"
+            
+            try:
+                result = tool.run(**args)
+                return str(result)
+            except Exception as e:
+                return f"error: tool '{name}' failed: {str(e)}"
+
+        async def agent_loop(model, messages):
+            """Client-side agent loop for JSON tool calling."""
+            for step in range(MAX_STEPS):
+                logger.debug(f"[vLLM agent loop] step {step+1}/{MAX_STEPS}")
+                
+                resp = await model(messages=messages, tool_choice=tool_choice)
+                content = resp.text if hasattr(resp, 'text') else str(resp)
+                
+                logger.debug(f"[vLLM agent loop] model output: {repr(content[:500])}")
+                
+                data = try_parse_json(content)
+                
+                # Tool call
+                if data and data.get("action") == "tool":
+                    tool_name = data.get("name")
+                    args = data.get("args", {})
+                    
+                    logger.info(f"[vLLM agent loop] calling tool: {tool_name}, args: {args}")
+                    result = run_tool(tool_name, args)
+                    
+                    # Append assistant tool call and tool result
+                    messages.append(Msg(
+                        name="assistant",
+                        role="assistant",
+                        content=content
+                    ))
+                    messages.append(Msg(
+                        name="tool",
+                        role="tool",
+                        content=result
+                    ))
+                    continue
+                
+                # Final answer
+                if data and data.get("action") == "final":
+                    answer = data.get("answer", "")
+                    logger.info(f"[vLLM agent loop] final answer: {repr(answer[:200])}")
+                    return Msg(
+                        name="assistant",
+                        role="assistant",
+                        content=answer
+                    )
+                
+                # Fallback: return as plain text
+                logger.debug(f"[vLLM agent loop] fallback to plain text")
+                return Msg(
+                    name="assistant",
+                    role="assistant",
+                    content=content
+                )
+            
+            # Max steps reached
+            logger.warning(f"[vLLM agent loop] max steps ({MAX_STEPS}) reached")
+            return Msg(
+                name="assistant",
+                role="assistant",
+                content=f"Agent stopped: maximum {MAX_STEPS} steps reached"
+            )
+
+        # Use our client-side agent loop for vLLM compatibility
         try:
-            return await super()._reasoning(tool_choice=tool_choice)
-        except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
-                raise
-
-            n_stripped = self._strip_media_blocks_from_memory()
-            if n_stripped == 0:
-                raise
-
-            # If the model is marked as multimodal but still
-            # errored, the capability flag may be wrong.
-            if get_active_model_supports_multimodal():
-                logger.warning(
-                    "Model marked multimodal but "
-                    "rejected media. "
-                    "Capability flag may be wrong.",
+            # Wrap the model to match the expected interface
+            async def model_call(messages, tool_choice):
+                # Convert AgentScope Msg objects to openai format
+                openai_messages = []
+                for msg in messages:
+                    if isinstance(msg, Msg):
+                        role = "user" if msg.role == "user" else "assistant" if msg.role == "assistant" else "tool"
+                        openai_messages.append({
+                            "role": role,
+                            "content": msg.content
+                        })
+                
+                # Call the underlying model
+                return await self.model(
+                    messages=openai_messages,
+                    tool_choice=tool_choice
                 )
 
-            logger.warning(
-                "_reasoning failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
-                e,
-                n_stripped,
-            )
-            return await super()._reasoning(tool_choice=tool_choice)
+            return await agent_loop(model_call, self.memory.get_memory())
+        except Exception as e:
+            logger.error(f"[vLLM agent loop] failed: {e}, falling back to original _reasoning", exc_info=True)
+            # Fallback to original behavior
+            try:
+                return await super()._reasoning(tool_choice=tool_choice)
+            except Exception as e2:
+                if not self._is_bad_request_or_media_error(e2):
+                    raise
+
+                n_stripped = self._strip_media_blocks_from_memory()
+                if n_stripped == 0:
+                    raise
+
+                # If the model is marked as multimodal but still
+                # errored, the capability flag may be wrong.
+                if get_active_model_supports_multimodal():
+                    logger.warning(
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong."
+                    )
+
+                logger.warning(
+                    "_reasoning failed (%s). "
+                    "Stripped %d media block(s) from memory, retrying.",
+                    e2,
+                    n_stripped,
+                )
+                return await super()._reasoning(tool_choice=tool_choice)
 
     async def _summarizing(self) -> Msg:
         """Override summarizing with proactive media filtering,
