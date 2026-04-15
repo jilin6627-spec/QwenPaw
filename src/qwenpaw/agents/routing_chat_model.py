@@ -113,6 +113,9 @@ class RoutingChatModel(ChatModelBase):
             ",".join(decision.reasons),
         )
 
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        if tool_choice == "auto":
+            tool_choice = None
         return await endpoint.model(
             messages=messages,
             tools=tools,
