@@ -76,7 +76,21 @@ jobs:
           fi
           echo "✅ qwenpaw CLI works"
           echo "=== 4. Test qwenpaw init generates config"
-          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "mkdir -p /tmp/test-init && cd /tmp/test-init && qwenpaw init --defaults --accept-security; [ -f config.json ] && grep -q 'port' config.json && rm -rf /tmp/test-init"
+          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "
+            mkdir -p /tmp/test-init && cd /tmp/test-init
+            qwenpaw init --defaults --accept-security
+            if [ ! -f config.json ]; then
+              echo 'ERROR: config.json not generated' >&2
+              exit 1
+            fi
+            if ! grep -q 'port' config.json; then
+              echo 'ERROR: config.json missing port field' >&2
+              exit 1
+            fi
+            rm -rf /tmp/test-init
+            echo 'SUCCESS: config generated'
+            exit 0
+          "
           if [ $? -ne 0 ]; then
             echo "❌ qwenpaw init failed (config not generated or missing port)"
             exit 1
