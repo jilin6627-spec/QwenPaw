@@ -643,6 +643,9 @@ class ToolGuardMixin:
         if self._last_tool_response_is_denied():
             return await self._emit_waiting_for_approval()
 
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        if tool_choice == "auto":
+            tool_choice = None
         return await super()._reasoning(  # type: ignore[misc]
             tool_choice=tool_choice,
         )

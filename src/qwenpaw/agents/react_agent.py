@@ -699,6 +699,9 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 )
 
         # --- Passive fallback layer (existing logic) ---
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        if tool_choice == "auto":
+            tool_choice = None
         try:
             return await super()._reasoning(tool_choice=tool_choice)
         except Exception as e:
