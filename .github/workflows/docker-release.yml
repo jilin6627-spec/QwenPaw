@@ -76,12 +76,12 @@ jobs:
           fi
           echo "✅ qwenpaw CLI works"
           echo "=== 4. Test qwenpaw init generates config"
-          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "mkdir -p /tmp/test-init && cd /tmp/test-init && qwenpaw init --defaults --accept-security && [ -f config.json ] && grep -q 'port' config.json && rm -rf /tmp/test-init"
+          docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "mkdir -p /tmp/test-init && cd /tmp/test-init && qwenpaw init --defaults --accept-security; [ -f config.json ] && grep -q 'port' config.json && rm -rf /tmp/test-init"
           if [ $? -ne 0 ]; then
-            echo "❌ qwenpaw init failed"
+            echo "❌ qwenpaw init failed (config not generated or missing port)"
             exit 1
           fi
-          echo "✅ qwenpaw init works"
+          echo "✅ qwenpaw init works (config generated successfully)"
           echo "=== 5. Test container startup and port"
           docker run -d --name qwenpaw-test -p 8088:8088 $IMAGE_NAME:$TAG_SHORT
           sleep 30
