@@ -62,7 +62,22 @@ jobs:
           fi
           echo "✅ Entry directory check passed"
           echo "=== 2. Test Python module import + verify vLLM fix"
-          docker run --rm $IMAGE_NAME:$TAG_SHORT python3 -c "import qwenpaw; print('qwenpaw imported successfully'); from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper; print('✅ TokenRecordingModelWrapper imported'); import inspect; source = inspect.getsource(TokenRecordingModelWrapper.__call__); exit(0 if 'tool_choice == \"auto\"' in source and 'tool_choice = None' in source else 1)"
+          docker run --rm $IMAGE_NAME:$TAG_SHORT python3 -c "import qwenpaw; print('qwenpaw imported successfully'); 
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper; print('✅ TokenRecordingModelWrapper imported'); 
+from qwenpaw.agents.tool_guard_mixin import ToolGuardMixin; print('✅ ToolGuardMixin imported');
+from qwenpaw.agents.react_agent import QwenPawReactAgent; print('✅ QwenPawReactAgent imported');
+from qwenpaw.agents.routing_chat_model import RoutingChatModel; print('✅ RoutingChatModel imported');
+import inspect; 
+ok=1; 
+source1 = inspect.getsource(TokenRecordingModelWrapper.__call__);
+if 'tool_choice == \"auto\"' in source1 and 'tool_choice = None' in source1: print('✅ token_usage/model_wrapper.py fix present'); else: print('❌ token_usage/model_wrapper.py fix missing'); ok=0; 
+source2 = inspect.getsource(ToolGuardMixin._reasoning);
+if 'tool_choice == \"auto\"' in source2 and 'tool_choice = None' in source2: print('✅ tool_guard_mixin.py fix present'); else: print('❌ tool_guard_mixin.py fix missing'); ok=0;
+source3 = inspect.getsource(QwenPawReactAgent._reasoning);
+if 'tool_choice == \"auto\"' in source3 and 'tool_choice = None' in source3: print('✅ react_agent.py fix present'); else: print('❌ react_agent.py fix missing'); ok=0;
+source4 = inspect.getsource(RoutingChatModel.__call__);
+if 'tool_choice == \"auto\"' in source4 and 'tool_choice = None' in source4: print('✅ routing_chat_model.py fix present'); else: print('❌ routing_chat_model.py fix missing'); ok=0;
+exit(0 if ok else 1)"
           if [ $? -ne 0 ]; then
             echo "❌ Python import or fix check failed"
             exit 1
