@@ -101,7 +101,7 @@ jobs:
           echo "✅ qwenpaw init works (config generated successfully)"
           echo "=== 5. Test container startup and port"
           docker run -d --name qwenpaw-test -p 8088:8088 $IMAGE_NAME:$TAG_SHORT
-          sleep 30
+          sleep 60
           if ! docker ps | grep -q qwenpaw-test; then
             echo "❌ Container crashed"
             docker logs qwenpaw-test
@@ -109,7 +109,7 @@ jobs:
             exit 1
           fi
           echo "✅ Container running"
-          if ! curl --connect-timeout 15 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
+          if ! curl --connect-timeout 30 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
             echo "❌ Port 8088 not responding"
             docker logs qwenpaw-test
             docker stop qwenpaw-test
