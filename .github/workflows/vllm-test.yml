@@ -57,10 +57,11 @@ jobs:
 
           # Start vLLM server with small model Qwen2-0.5B-Instruct
           # Ubuntu runner has 4GB+ memory, this should fit
+          # Image entrypoint is already ["vllm", "serve"], so just model name + args
           docker run -d --name vllm-test -p 8000:8000 \
             -e VLLM_CPU_KVCACHE_SPACE=1 \
             ghcr.io/southball/vllm-avx2-docker:latest \
-            serve Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 1024 --swap-space 1
+            Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 1024 --swap-space 1
 
           echo "Waiting for vLLM server to start..."
           sleep 180
