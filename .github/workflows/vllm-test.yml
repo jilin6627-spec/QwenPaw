@@ -12,7 +12,7 @@ on:
 jobs:
   vllm-compatibility-test:
     name: vLLM Compatibility Test
-    runs-on: ubuntu-latest-large
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -104,17 +104,24 @@ jobs:
       - name: Start vLLM OpenAI CPU server with small model
         shell: bash
         run: |
+          # Create additional 8GB swap space to handle memory pressure on 7GB runner
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+          
           # Start vLLM server with pre-downloaded model from local filesystem
-          # Use smaller max-model-len and more swap to fit GitHub free runner (7GB total)
+          # Extra swap helps fit on 7GB GitHub free runner
           # Image entrypoint is already ["vllm", "serve"], so just model name + args
           docker run -d --name vllm-test -p 8000:8000 \
             -v "$(pwd)/models:/models" \
             -e VLLM_CPU_KVCACHE_SPACE=1 \
             ghcr.io/southball/vllm-avx2-docker:latest \
-            /models/Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 512 --swap-space 4
+            /models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4 --port 8000 --max-model-len 512 --swap-space 4
 
           echo "✅ vLLM container started with pre-downloaded model, waiting for server startup..."
-          sleep 90
+          sleep 120
 
 
       - name: Wait for vLLM health check
