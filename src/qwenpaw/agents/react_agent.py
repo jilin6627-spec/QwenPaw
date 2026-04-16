@@ -729,110 +729,37 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         # When using vLLM as OpenAI-compatible backend, tool_choice="auto" is rejected
         # unless server started with --enable-auto-tool-choice. We implement a simple
         # client-side agent loop that parses JSON tool calls directly from model output.
-        import json
-        import logging
+        from qwenpaw.runtime.tool_runtime import run_agent_loop, handle_tool_call
         from agentscope.message import Msg
+        
+        # Add system prompt that instructs model to output JSON format
+        system_prompt = Msg(
+            name="system",
+            role="system",
+            content="""You are an agent.
 
-        MAX_STEPS = 8
+When you need to use a tool, output ONLY JSON:
 
-        def try_parse_json(text: str) -> dict | None:
-            """Try to parse JSON with simple error recovery."""
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                # Common fix: strip markdown code blocks
-                text = text.strip()
-                if text.startswith('```'):
-                    # Remove opening ```json
-                    text = text.split('\n', 1)[1]
-                    # Remove closing ```
-                    if text.rfind('```') != -1:
-                        text = text[:text.rfind('```')]
-                    text = text.strip()
-                    try:
-                        return json.loads(text)
-                    except json.JSONDecodeError:
-                        return None
-                return None
+{"action":"tool","name":"<tool_name>","args":{...}}
 
-        def run_tool(name: str, args: dict) -> str:
-            """Run registered tool."""
-            from qwenpaw.app.server.tools_registry import get_tool_manager
-            tm = get_tool_manager()
-            
-            tool = tm.get_tool(name)
-            if tool is None:
-                return f"error: unknown tool '{name}'"
-            
-            try:
-                result = tool.run(**args)
-                return str(result)
-            except Exception as e:
-                return f"error: tool '{name}' failed: {str(e)}"
+When finished:
 
-        async def agent_loop(model, messages):
-            """Client-side agent loop for JSON tool calling."""
-            for step in range(MAX_STEPS):
-                logger.debug(f"[vLLM agent loop] step {step+1}/{MAX_STEPS}")
-                
-                resp = await model(messages=messages, tool_choice=tool_choice)
-                content = resp.text if hasattr(resp, 'text') else str(resp)
-                
-                logger.debug(f"[vLLM agent loop] model output: {repr(content[:500])}")
-                
-                data = try_parse_json(content)
-                
-                # Tool call
-                if data and data.get("action") == "tool":
-                    tool_name = data.get("name")
-                    args = data.get("args", {})
-                    
-                    logger.info(f"[vLLM agent loop] calling tool: {tool_name}, args: {args}")
-                    result = run_tool(tool_name, args)
-                    
-                    # Append assistant tool call and tool result
-                    messages.append(Msg(
-                        name="assistant",
-                        role="assistant",
-                        content=content
-                    ))
-                    messages.append(Msg(
-                        name="tool",
-                        role="tool",
-                        content=result
-                    ))
-                    continue
-                
-                # Final answer
-                if data and data.get("action") == "final":
-                    answer = data.get("answer", "")
-                    logger.info(f"[vLLM agent loop] final answer: {repr(answer[:200])}")
-                    return Msg(
-                        name="assistant",
-                        role="assistant",
-                        content=answer
-                    )
-                
-                # Fallback: return as plain text
-                logger.debug(f"[vLLM agent loop] fallback to plain text")
-                return Msg(
-                    name="assistant",
-                    role="assistant",
-                    content=content
-                )
-            
-            # Max steps reached
-            logger.warning(f"[vLLM agent loop] max steps ({MAX_STEPS}) reached")
-            return Msg(
-                name="assistant",
-                role="assistant",
-                content=f"Agent stopped: maximum {MAX_STEPS} steps reached"
-            )
+{"action":"final","answer":"..."}
 
+Rules:
+- No explanation with JSON
+- Only JSON when calling tools"""
+        )
+        
         # Use our client-side agent loop for vLLM compatibility
         try:
+            # Get existing memory
+            memory = self.memory.get_memory()
+            # Prepend system instruction for JSON formatting
+            messages = [system_prompt] + memory
+            
             # Wrap the model to match the expected interface
-            async def model_call(messages, tool_choice):
+            async def model_call(messages):
                 # Convert AgentScope Msg objects to openai format
                 openai_messages = []
                 for msg in messages:
@@ -849,7 +776,15 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     tool_choice=tool_choice
                 )
 
-            return await agent_loop(model_call, self.memory.get_memory())
+            # Run the agent loop
+            result_content = await run_agent_loop(model_call, messages)
+            
+            # Return as AgentScope message
+            return Msg(
+                name="assistant",
+                role="assistant",
+                content=result_content
+            )
         except Exception as e:
             logger.error(f"[vLLM agent loop] failed: {e}, falling back to original _reasoning", exc_info=True)
             # Fallback to original behavior with new media handling
