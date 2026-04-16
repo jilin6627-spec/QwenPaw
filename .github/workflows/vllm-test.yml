@@ -73,24 +73,22 @@ jobs:
       - name: Download model files with wget (direct parallel download)
         shell: bash
         run: |
-          # Use wget direct download for speed, parallel connections
-          mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4
-          cd ./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4
+          # Use smaller non-quantized model for lower memory footprint on GitHub free runner
+          mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct
+          cd ./models/Qwen/Qwen2-0.5B-Instruct
           
-          # Download essential files only (no extra files)
-          # - model.safetensors.index.json: ~1KB
-          # - *.safetensors: ~180MB total
-          # - tokenizer files: small
+          # Download essential files only (total ~500MB)
           files=(
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/model.safetensors.index.json"
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/generation_config.json"
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/config.json"
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/tokenizer.json"
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/tokenizer_config.json"
-            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/model-00001-of-00002.safetensors"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/model.safetensors.index.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/generation_config.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/config.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/tokenizer.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/tokenizer_config.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/model-00001-of-00002.safetensors"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct/resolve/main/model-00002-of-00002.safetensors"
           )
           
-          # Download with 8 parallel connections, 10 retries
+          # Download with 6 parallel connections
           echo "Starting parallel download of ${#files[@]} files..."
           for file in "${files[@]}"; do
             wget --progress=bar -t 10 -c "$file" &
@@ -107,16 +105,16 @@ jobs:
         shell: bash
         run: |
           # Start vLLM server with pre-downloaded model from local filesystem
-          # Ubuntu runner has 4GB+ memory, this should fit
+          # Use smaller max-model-len and more swap to fit GitHub free runner (7GB total)
           # Image entrypoint is already ["vllm", "serve"], so just model name + args
           docker run -d --name vllm-test -p 8000:8000 \
             -v "$(pwd)/models:/models" \
             -e VLLM_CPU_KVCACHE_SPACE=1 \
             ghcr.io/southball/vllm-avx2-docker:latest \
-            /models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4 --port 8000 --max-model-len 1024 --swap-space 1
+            /models/Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 512 --swap-space 4
 
           echo "✅ vLLM container started with pre-downloaded model, waiting for server startup..."
-          sleep 60
+          sleep 90
 
 
       - name: Wait for vLLM health check
@@ -189,7 +187,7 @@ jobs:
           
           config = {
               'model_type': 'openai',
-              'model_name': 'Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
+              'model_name': 'Qwen/Qwen2-0.5B-Instruct',
               'api_key': 'dummy',
               'base_url': 'http://localhost:8000/v1',
           }
