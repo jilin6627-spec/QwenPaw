@@ -70,24 +70,38 @@ jobs:
           docker pull ghcr.io/southball/vllm-avx2-docker:latest
           echo "✅ vLLM Docker image pulled"
 
-      - name: Download model from ModelScope (faster for GitHub runners)
+      - name: Download model files with wget (direct parallel download)
         shell: bash
         run: |
-          # Install modelscope
-          pip install modelscope
-          
-          # Use 4-bit quantized model to reduce download size (~180MB instead of ~300MB)
-          # Download from ModelScope which is faster than Hugging Face for GitHub runners
+          # Use wget direct download for speed, parallel connections
           mkdir -p ./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4
-          python -c "
-          from modelscope import snapshot_download
-          model_dir = snapshot_download(
-              'qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
-              cache_dir='./models',
-              local_dir='./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4',
+          cd ./models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4
+          
+          # Download essential files only (no extra files)
+          # - model.safetensors.index.json: ~1KB
+          # - *.safetensors: ~180MB total
+          # - tokenizer files: small
+          files=(
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/model.safetensors.index.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/generation_config.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/config.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/tokenizer.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/tokenizer_config.json"
+            "https://huggingface.co/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4/resolve/main/model-00001-of-00002.safetensors"
           )
-          print('✅ Model downloaded from ModelScope to local directory')
-          "
+          
+          # Download with 8 parallel connections, 10 retries
+          echo "Starting parallel download of ${#files[@]} files..."
+          for file in "${files[@]}"; do
+            wget --progress=bar -t 10 -c "$file" &
+          done
+          wait
+          
+          echo "✅ All model files downloaded with wget (parallel)"
+          ls -lh
+          cd ../../..
+          echo "Total size:"
+          du -sh ./models/
 
       - name: Start vLLM OpenAI CPU server with small model
         shell: bash
