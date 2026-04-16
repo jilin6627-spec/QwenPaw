@@ -105,7 +105,8 @@ jobs:
         shell: bash
         run: |
           # Create additional 8GB swap space to handle memory pressure on 7GB runner
-          sudo fallocate -l 8G /swapfile
+          # Use dd instead of fallocate (fallocate can fail on some file systems)
+          sudo dd if=/dev/zero of=/swapfile bs=1G count=8 status=progress
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
