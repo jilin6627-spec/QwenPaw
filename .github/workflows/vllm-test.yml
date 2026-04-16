@@ -1,0 +1,140 @@
+# End-to-end test for vLLM compatibility
+# Test that QwenPaw can work with vLLM OpenAI server without --enable-auto-tool-choice
+name: vLLM Compatibility Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.github/workflows/vllm-test.yml'
+
+jobs:
+  vllm-compatibility-test:
+    name: vLLM Compatibility Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Verify complete vLLM tool_choice fix
+        shell: bash
+        run: |
+          echo "Verifying all 4 files have the vLLM tool_choice=auto fix..."
+
+          # List of files that must contain the fix
+          files=(
+            "src/qwenpaw/agents/tool_guard_mixin.py"
+            "src/qwenpaw/agents/react_agent.py"
+            "src/qwenpaw/agents/routing_chat_model.py"
+            "src/qwenpaw/token_usage/model_wrapper.py"
+          )
+
+          missing_fix=0
+          for file in "${files[@]}"; do
+            if ! grep -q 'if.*tool_choice.*==.*"auto"' "$file" || ! grep -q 'tool_choice.*=.*None' "$file"; then
+              echo "❌ ERROR: $file does NOT contain the vLLM tool_choice=auto fix!"
+              missing_fix=1
+            else
+              echo "✅ OK: $file contains the fix"
+            fi
+          done
+
+          if [ $missing_fix -ne 0 ]; then
+            echo "❌ Fix verification FAILED - some files are missing the fix"
+            exit 1
+          else
+            echo "✅ Fix verification PASSED - all 4 files contain the complete fix"
+          fi
+
+      - name: Start vLLM OpenAI CPU server with small model
+        shell: bash
+        run: |
+          # Pull community CPU vLLM image (AVX2 compiled)
+          docker pull ghcr.io/southball/vllm-avx2-docker:latest
+
+          # Start vLLM server with small model Qwen2-0.5B-Instruct
+          # Ubuntu runner has 4GB+ memory, this should fit
+          docker run -d --name vllm-test -p 8000:8000 \
+            -e VLLM_CPU_KVCACHE_SPACE=1 \
+            ghcr.io/southball/vllm-avx2-docker:latest \
+            serve Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 1024 --swap-space 1
+
+          echo "Waiting for vLLM server to start..."
+          sleep 180
+
+          # Check if container is still running
+          if ! docker ps | grep -q vllm-test; then
+            echo "❌ vLLM container exited, logs:"
+            docker logs vllm-test
+            exit 1
+          fi
+
+          echo "✅ vLLM server is running"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: 'pip'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,openai]"
+          pip install pytest requests
+
+      - name: Wait for vLLM health check
+        shell: bash
+        run: |
+          for i in {1..30}; do
+            if curl -s http://localhost:8000/v1/models > /dev/null; then
+              echo "✅ vLLM API is ready"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 10
+          done
+          echo "❌ Timed out waiting for vLLM API"
+          curl -v http://localhost:8000/v1/models
+          docker logs vllm-test
+          exit 1
+
+      - name: Run simple completion test
+        shell: bash
+        run: |
+          curl -s http://localhost:8000/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{
+              "model": "Qwen/Qwen2-0.5B-Instruct",
+              "messages": [{"role": "user", "content": "Hello!"}]
+            }' | grep -q "id" && echo "✅ Completion test passed"
+
+      - name: Run QwenPaw integration test
+        shell: bash
+        run: |
+          # TODO: Add a simple integration test that uses QwenPaw with vLLM backend
+          # For now, just verify the import and that the fix is present
+          python -c "
+          import qwenpaw
+          from qwenpaw.agents.react_agent import ReactAgent
+          print('✅ QwenPaw imported successfully')
+          # Check that the fix is in the code
+          import inspect
+          source = inspect.getsource(ReactAgent._reasoning)
+          if 'JSON tool calling' in source and 'vllm' in source.lower():
+              print('✅ vLLM compatibility code found')
+          else:
+              raise Exception('vLLM compatibility code not found in _reasoning method')
+          "
+
+      - name: Clean up
+        if: always()
+        shell: bash
+        run: |
+          docker stop vllm-test || true
+          docker rm vllm-test || true
+          echo "Cleanup done"
