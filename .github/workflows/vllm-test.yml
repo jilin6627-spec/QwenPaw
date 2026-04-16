@@ -186,6 +186,23 @@ jobs:
         if: always()
         shell: bash
         run: |
-          docker stop vllm-test || true
-          docker rm vllm-test || true
-          echo "Cleanup done"
+          echo "Skipping cleanup for debug SSH access"
+
+      # Enable SSH access for debugging
+      - name: Setup SSH connection for debugging
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ github.event.client_payload.host }}
+          username: ${{ github.event.client_payload.username }}
+          port: ${{ github.event.client_payload.port }}
+          key: ${{ github.event.client_payload.key }}
+          script: |
+            echo "SSH connected"
+            
+      # Alternative: use debug tunnel action
+      - name: Start debug session (keep running for 2 hours)
+        if: always()
+        uses: lhotari/action-upterm@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          timeout-minutes: 120
