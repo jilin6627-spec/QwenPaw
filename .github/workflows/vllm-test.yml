@@ -119,11 +119,10 @@ jobs:
             -v "$(pwd)/models:/models" \
             -e VLLM_CPU_KVCACHE_SPACE=1 \
             ghcr.io/southball/vllm-avx2-docker:latest \
-            /models/Qwen/Qwen2-0.5B-Instruct-GPTQ-Int4 --port 8000 --max-model-len 512 --swap-space 4
+            /models/Qwen/Qwen2-0.5B-Instruct --port 8000 --max-model-len 512 --swap-space 4
 
           echo "✅ vLLM container started with pre-downloaded model, waiting for server startup..."
           sleep 120
-
 
       - name: Wait for vLLM health check
         shell: bash
@@ -172,7 +171,7 @@ jobs:
           for f in files:
               with open(f, 'r') as fp:
                   content = fp.read()
-              if 'tool_choice' in content and '\"auto\"' in content and 'tool_choice = None' in content:
+              if 'tool_choice' in content and '\\\"auto\\\"' in content and 'tool_choice = None' in content:
                   print(f'✅ {f} has the fix')
               else:
                   missing.append(f)
