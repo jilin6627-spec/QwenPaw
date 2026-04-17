@@ -217,7 +217,19 @@ jobs:
           
           print('\\n✅ All end-to-end tests passed!')
           print('🎉 vLLM compatibility verification complete!')
-          "}
+          "
+
+      - name: Run standalone agent runtime verification
+        shell: bash
+        run: |
+          echo "=== Standalone Agent Runtime Verification ==="
+          echo "This test independently verifies that:"
+          echo "1. vLLM accepts requests with tool_choice=None (no 400 error)"
+          echo "2. Model outputs JSON tool calls according to format"
+          echo "3. Client can execute tools and continue multi-round reasoning"
+          echo "==============================================="
+          sleep 10
+          python test_agent_runtime.py "List files in current directory and summarize the structure"
 
       - name: Clean up
         if: ${{ !contains(github.event.head_commit.message, 'debug') }}
