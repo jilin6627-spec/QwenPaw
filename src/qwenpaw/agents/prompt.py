@@ -299,33 +299,46 @@ def build_system_prompt_from_working_dir(
     def _is_vllm_openai_backend() -> bool:
         """Check if current active model is using vLLM OpenAI compatible backend."""
         try:
-            from ..config.config import load_config
             from ..providers.provider_manager import ProviderManager
-            
-            config = load_config()
+
             manager = ProviderManager.get_instance()
-            
-            # Get active model
+
+            # Use existing helper to get active model info
+            model_info, model_name = _get_active_model_info()
+            if model_info is None or model_name is None:
+                return False
+
+            # Check model name for vLLM indicator
+            if 'vllm' in model_name.lower():
+                return True
+
+            # Get provider and check for localhost OpenAI endpoint (typical vLLM setup)
+            # Try to get agent-specific model first
             from ..app.agent_context import get_current_agent_id
-            agent_id_current = get_current_agent_id()
-            if agent_id_current:
-                from ..config.config import load_agent_config
-                agent_config = load_agent_config(agent_id_current)
-                active_model = agent_config.active_model
-                if active_model:
-                    provider = manager.get_provider(active_model.provider_id)
-                    if provider:
-                        # Check if this is vLLM OpenAI backend
-                        # vLLM typically uses openai-compatible API endpoint
-                        if hasattr(provider, 'base_url') and provider.base_url:
-                            if 'vllm' in provider.base_url.lower() or 'vllm' in str(active_model.model).lower():
-                                return True
-                        # Also check by provider type
-                        if hasattr(provider, 'provider_type') and (provider.provider_type == 'openai' or provider.provider_type == 'openai-compat'):
-                            # If running on localhost, likely vLLM
+            from ..config.config import load_agent_config
+
+            try:
+                agent_id = get_current_agent_id()
+                if agent_id:
+                    agent_config = load_agent_config(agent_id)
+                    if agent_config and agent_config.active_model:
+                        provider = manager.get_provider(
+                            agent_config.active_model.provider_id
+                        )
+                        if provider:
                             if hasattr(provider, 'base_url') and provider.base_url:
-                                if 'localhost' in provider.base_url or '127.0.0.1' in provider.base_url:
-                                    return True
+                                base_lower = provider.base_url.lower()
+                                # vLLM indicators: localhost/127.0.0.1 + OpenAI compat
+                                if ('localhost' in base_lower or
+                                        '127.0.0.1' in base_lower):
+                                    if hasattr(provider, 'provider_type'):
+                                        if provider.provider_type in (
+                                            'openai', 'openai-compat'
+                                        ):
+                                            return True
+            except Exception:
+                pass
+
             return False
         except Exception:
             return False

@@ -825,47 +825,6 @@ Rules:
                         "Capability flag may be wrong.",
                     )
 
-            return await agent_loop(model_call, self.memory.get_memory())
-        except Exception as e:
-            logger.error(f"[vLLM agent loop] failed: {e}, falling back to original _reasoning", exc_info=True)
-            # Fallback to original behavior with existing fallback chain
-            try:
-                return await super()._reasoning(tool_choice=tool_choice)
-            except Exception as e2:
-                if not self._is_bad_request_or_media_error(e2):
-                    raise
-
-                if self._uses_request_time_media_normalization():
-                    if get_active_model_supports_multimodal():
-                        logger.warning(
-                            "Model marked multimodal but "
-                            "rejected media. "
-                            "Capability flag may be wrong.",
-                        )
-                    self._set_formatter_media_strip(True)
-                    try:
-                        logger.warning(
-                            "_reasoning failed (%s). "
-                            "Retrying with request-time media stripping.",
-                            e2,
-                        )
-                        return await super()._reasoning(tool_choice=tool_choice)
-                    finally:
-                        self._set_formatter_media_strip(False)
-
-                n_stripped = self._strip_media_blocks_from_memory()
-                if n_stripped == 0:
-                    raise
-
-                # If the model is marked as multimodal but still
-                # errored, the capability flag may be wrong.
-                if get_active_model_supports_multimodal():
-                    logger.warning(
-                        "Model marked multimodal but "
-                        "rejected media. "
-                        "Capability flag may be wrong.",
-                    )
-
                 logger.warning(
                     "_reasoning failed (%s). "
                     "Stripped %d media block(s) from memory, retrying.",

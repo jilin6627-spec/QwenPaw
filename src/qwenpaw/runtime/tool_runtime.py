@@ -9,13 +9,29 @@ logger = logging.getLogger(__name__)
 # ===== 工具注册 =====
 def run_tool(name: str, args: dict):
     try:
-        from qwenpaw.app.server.tools_registry import get_tool_manager
-        tm = get_tool_manager()
+        from qwenpaw.plugins.registry import PluginRegistry
         
-        tool = tm.get_tool(name)
-        if tool is None:
+        # In QwenPaw, tools are typically managed by the plugin registry or workspace
+        # We'll use a dynamic import approach to avoid circular dependencies
+        try:
+            from qwenpaw.app.workspace.service_manager import get_workspace_service
+            ws = get_workspace_service()
+            if hasattr(ws, 'tools'):
+                tool = ws.tools.get(name)
+                if tool:
+                    result = tool.run(**args)
+                    return str(result)
+        except Exception:
+            pass
+            
+        # Fallback to direct registry access
+        registry = PluginRegistry.get_instance()
+        tool_cls = registry.get_tool(name)
+        if tool_cls is None:
             return f"[ERROR] Unknown tool: {name}"
         
+        # Instantiate and run
+        tool = tool_cls()
         result = tool.run(**args)
         return str(result)
     
