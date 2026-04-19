@@ -721,15 +721,99 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                     )
 
         # --- Passive fallback layer (existing logic) ---
-        # Fix: Omit tool_choice="auto" for vLLM compatibility
-        if tool_choice == "auto":
-            tool_choice = None
-            
+        # Detect if we are using vLLM backend
+        def _is_vllm_backend() -> bool:
+            try:
+                from qwenpaw.providers.provider_manager import ProviderManager
+                from qwenpaw.agents.prompt import _get_active_model_info
+                
+                manager = ProviderManager.get_instance()
+                model_info, model_name = _get_active_model_info()
+                
+                if model_info is None or model_name is None:
+                    return False
+
+                if 'vllm' in model_name.lower():
+                    return True
+
+                from qwenpaw.app.agent_context import get_current_agent_id
+                from qwenpaw.config.config import load_agent_config
+
+                try:
+                    agent_id = get_current_agent_id()
+                    if agent_id:
+                        agent_config = load_agent_config(agent_id)
+                        if agent_config and agent_config.active_model:
+                            provider = manager.get_provider(
+                                agent_config.active_model.provider_id
+                            )
+                            if provider:
+                                if hasattr(provider, 'base_url') and provider.base_url:
+                                    base_lower = provider.base_url.lower()
+                                    if ('localhost' in base_lower or '127.0.0.1' in base_lower):
+                                        if hasattr(provider, 'provider_type'):
+                                            if provider.provider_type in ('openai', 'openai-compat'):
+                                                return True
+                except Exception:
+                    pass
+
+                return False
+            except Exception:
+                return False
+
+        if not _is_vllm_backend():
+            # Standard execution path for non-vLLM models
+            try:
+                return await super()._reasoning(tool_choice=tool_choice)
+            except Exception as e2:
+                if not self._is_bad_request_or_media_error(e2):
+                    raise
+
+                if self._uses_request_time_media_normalization():
+                    if get_active_model_supports_multimodal():
+                        logger.warning(
+                            "Model marked multimodal but "
+                            "rejected media. "
+                            "Capability flag may be wrong.",
+                        )
+                    self._set_formatter_media_strip(True)
+                    try:
+                        logger.warning(
+                            "_reasoning failed (%s). "
+                            "Retrying with request-time media stripping.",
+                            e2,
+                        )
+                        return await super()._reasoning(tool_choice=tool_choice)
+                    finally:
+                        self._set_formatter_media_strip(False)
+
+                n_stripped = self._strip_media_blocks_from_memory()
+                if n_stripped == 0:
+                    raise
+
+                if get_active_model_supports_multimodal():
+                    logger.warning(
+                        "Model marked multimodal but "
+                        "rejected media. "
+                        "Capability flag may be wrong.",
+                    )
+
+                logger.warning(
+                    "_reasoning failed (%s). "
+                    "Stripped %d media block(s) from memory, retrying.",
+                    e2,
+                    n_stripped,
+                )
+                return await super()._reasoning(tool_choice=tool_choice)
+
         # --- vLLM Compatibility: Client-side Agent Runtime with JSON tool parsing ---
         # When using vLLM as OpenAI-compatible backend, tool_choice="auto" is rejected
         # unless server started with --enable-auto-tool-choice. We implement a simple
         # client-side agent loop that parses JSON tool calls directly from model output.
-        from qwenpaw.runtime.tool_runtime import run_agent_loop, handle_tool_call
+        if tool_choice == "auto":
+            tool_choice = None
+            
+        from qwenpaw.runtime.tool_runtime import run_agent_loop
         from agentscope.message import Msg
         
         # Add system prompt that instructs model to output JSON format
