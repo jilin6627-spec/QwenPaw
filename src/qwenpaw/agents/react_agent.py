@@ -722,6 +722,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
 
         # --- Passive fallback layer (existing logic) ---
         # Detect if we are using vLLM backend
+        # pylint: disable=too-many-nested-blocks,too-many-branches,too-many-return-statements
         def _is_vllm_backend() -> bool:
             try:
                 from qwenpaw.providers.provider_manager import ProviderManager
@@ -739,24 +740,23 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 from qwenpaw.app.agent_context import get_current_agent_id
                 from qwenpaw.config.config import load_agent_config
 
-                try:
-                    agent_id = get_current_agent_id()
-                    if agent_id:
-                        agent_config = load_agent_config(agent_id)
-                        if agent_config and agent_config.active_model:
-                            provider = manager.get_provider(
-                                agent_config.active_model.provider_id
-                            )
-                            if provider:
-                                if hasattr(provider, 'base_url') and provider.base_url:
-                                    base_lower = provider.base_url.lower()
-                                    if ('localhost' in base_lower or '127.0.0.1' in base_lower):
-                                        if hasattr(provider, 'provider_type'):
-                                            if provider.provider_type in ('openai', 'openai-compat'):
-                                                return True
-                except Exception:
-                    pass
-
+                agent_id = get_current_agent_id()
+                if not agent_id:
+                    return False
+                    
+                agent_config = load_agent_config(agent_id)
+                if not agent_config or not agent_config.active_model:
+                    return False
+                    
+                provider = manager.get_provider(agent_config.active_model.provider_id)
+                if not provider or not hasattr(provider, 'base_url') or not provider.base_url:
+                    return False
+                    
+                base_lower = provider.base_url.lower()
+                if 'localhost' in base_lower or '127.0.0.1' in base_lower:
+                    if hasattr(provider, 'provider_type'):
+                        if provider.provider_type in ('openai', 'openai-compat'):
+                            return True
                 return False
             except Exception:
                 return False
@@ -814,8 +814,8 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
             tool_choice = None
             
         from qwenpaw.runtime.tool_runtime import run_agent_loop
-        from agentscope.message import Msg
-        
+        # Msg is already imported at module level
+
         # Add system prompt that instructs model to output JSON format
         system_prompt = Msg(
             name="system",
@@ -834,29 +834,30 @@ Rules:
 - No explanation with JSON
 - Only JSON when calling tools"""
         )
-        
+
         # Use our client-side agent loop for vLLM compatibility
         try:
             # Get existing memory
             memory = self.memory.get_memory()
             # Prepend system instruction for JSON formatting
             messages = [system_prompt] + memory
-            
+
             # Wrap the model to match the expected interface
-            async def model_call(messages):
+            async def model_call(msgs):
                 # Convert AgentScope Msg objects to openai format
-                openai_messages = []
-                for msg in messages:
+                openai_msgs = []
+                for msg in msgs:
                     if isinstance(msg, Msg):
-                        role = "user" if msg.role == "user" else "assistant" if msg.role == "assistant" else "tool"
-                        openai_messages.append({
+                        r = msg.role
+                        role = "user" if r == "user" else "assistant" if r == "assistant" else "tool"
+                        openai_msgs.append({
                             "role": role,
                             "content": msg.content
                         })
-                
+
                 # Call the underlying model
                 return await self.model(
-                    messages=openai_messages,
+                    messages=openai_msgs,
                     tool_choice=tool_choice
                 )
 

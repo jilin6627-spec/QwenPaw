@@ -296,6 +296,7 @@ def build_system_prompt_from_working_dir(
     prompt = builder.build()
 
     # Add vLLM compatibility tool calling format when using vLLM OpenAI backend
+    # pylint: disable=too-many-nested-blocks
     def _is_vllm_openai_backend() -> bool:
         """Check if current active model is using vLLM OpenAI compatible backend."""
         try:
@@ -313,32 +314,26 @@ def build_system_prompt_from_working_dir(
                 return True
 
             # Get provider and check for localhost OpenAI endpoint (typical vLLM setup)
-            # Try to get agent-specific model first
             from ..app.agent_context import get_current_agent_id
             from ..config.config import load_agent_config
 
-            try:
-                agent_id = get_current_agent_id()
-                if agent_id:
-                    agent_config = load_agent_config(agent_id)
-                    if agent_config and agent_config.active_model:
-                        provider = manager.get_provider(
-                            agent_config.active_model.provider_id
-                        )
-                        if provider:
-                            if hasattr(provider, 'base_url') and provider.base_url:
-                                base_lower = provider.base_url.lower()
-                                # vLLM indicators: localhost/127.0.0.1 + OpenAI compat
-                                if ('localhost' in base_lower or
-                                        '127.0.0.1' in base_lower):
-                                    if hasattr(provider, 'provider_type'):
-                                        if provider.provider_type in (
-                                            'openai', 'openai-compat'
-                                        ):
-                                            return True
-            except Exception:
-                pass
-
+            agent_id = get_current_agent_id()
+            if not agent_id:
+                return False
+                
+            agent_config = load_agent_config(agent_id)
+            if not agent_config or not agent_config.active_model:
+                return False
+                
+            provider = manager.get_provider(agent_config.active_model.provider_id)
+            if not provider or not hasattr(provider, 'base_url') or not provider.base_url:
+                return False
+                
+            base_lower = provider.base_url.lower()
+            if 'localhost' in base_lower or '127.0.0.1' in base_lower:
+                if hasattr(provider, 'provider_type'):
+                    if provider.provider_type in ('openai', 'openai-compat'):
+                        return True
             return False
         except Exception:
             return False
