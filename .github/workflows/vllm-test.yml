@@ -121,11 +121,11 @@ jobs:
           # For now, just verify the import and that the fix is present
           python -c "
           import qwenpaw
-          from qwenpaw.agents.react_agent import ReactAgent
+          from qwenpaw.agents.react_agent import QwenPawAgent
           print('✅ QwenPaw imported successfully')
           # Check that the fix is in the code
           import inspect
-          source = inspect.getsource(ReactAgent._reasoning)
+          source = inspect.getsource(QwenPawAgent._reasoning)
           if 'JSON tool calling' in source and 'vllm' in source.lower():
               print('✅ vLLM compatibility code found')
           else:
