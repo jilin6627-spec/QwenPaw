@@ -1,0 +1,64 @@
+name: vLLM Playground Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'HuggingFace Model ID'
+        required: true
+        default: 'Qwen/Qwen2-0.5B-Instruct'
+      duration:
+        description: 'Keep server alive for (minutes)'
+        required: true
+        default: '60'
+
+jobs:
+  serve-vllm:
+    name: Host vLLM via Localtunnel
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+
+      - name: Start vLLM Server
+        run: |
+          echo "Starting vLLM with model ${{ github.event.inputs.model }}"
+          docker run -d --name vllm-test -p 8000:8000 \
+            -e VLLM_CPU_KVCACHE_SPACE=1 \
+            ghcr.io/southball/vllm-avx2-docker:latest \
+            ${{ github.event.inputs.model }} --port 8000 --max-model-len 1024
+
+      - name: Wait for vLLM to initialize
+        run: |
+          echo "Waiting for 8000 port to be ready..."
+          for i in {1..30}; do
+            if curl -s http://localhost:8000/v1/models > /dev/null; then
+              echo "✅ vLLM API is ready!"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 10
+          done
+          docker logs vllm-test
+          echo "❌ Timed out waiting for vLLM API"
+          exit 1
+
+      - name: Expose Port 8000 via Localtunnel
+        run: |
+          npm install -g localtunnel
+          lt --port 8000 > lt.log &
+          sleep 5
+          echo "==========================================="
+          echo "🌟 YOUR PUBLIC vLLM ENDPOINT IS READY:"
+          cat lt.log
+          echo ""
+          echo "⚠️ Your Public IP for Localtunnel verification: $(curl -s https://loca.lt/mytunnelpassword)"
+          echo "==========================================="
+
+      - name: Keep Runner Alive
+        run: |
+          echo "Server will stay alive for ${{ github.event.inputs.duration }} minutes..."
+          sleep $((${{ github.event.inputs.duration }} * 60))
