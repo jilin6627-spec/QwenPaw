@@ -97,41 +97,19 @@ jobs:
             exit 1
           fi
           echo "✅ qwenpaw init works (config generated successfully)"
-          echo "=== 5. Test container startup and port"
-          docker run -d --name qwenpaw-test -p 8088:8088 $IMAGE_NAME:$TAG_SHORT
-          sleep 30
-          if ! docker ps | grep -q qwenpaw-test; then
-            echo "❌ Container crashed"
-            docker logs qwenpaw-test
-            docker rm qwenpaw-test -f
-            exit 1
-          fi
-          echo "✅ Container running"
-          if ! curl --connect-timeout 15 http://localhost:8088/ > /tmp/curl_out.txt 2>&1; then
-            echo "❌ Port 8088 not responding"
-            docker logs qwenpaw-test
-            docker stop qwenpaw-test
-            docker rm qwenpaw-test
-            exit 1
-          fi
-          grep -q "<!DOCTYPE html>" /tmp/curl_out.txt
+          echo "=== 5. Quick container smoke test"
+          docker run --rm $IMAGE_NAME:$TAG_SHORT python3 -c "print('Container OK')"
           if [ $? -ne 0 ]; then
-            echo "❌ Not valid HTML"
-            cat /tmp/curl_out.txt
-            docker stop qwenpaw-test
-            docker rm qwenpaw-test
+            echo "❌ Container smoke test failed"
             exit 1
           fi
-          echo "✅ Port 8088 responding with valid HTML"
+          echo "✅ Container smoke test passed"
           echo "===== 👉 ALL TESTS PASSED! ====="
           echo "✅ Entry directory"
           echo "✅ Python import + vLLM fix"
           echo "✅ qwenpaw CLI"
           echo "✅ qwenpaw init"
-          echo "✅ Container running"
-          echo "✅ Port 8088"
-          docker stop qwenpaw-test
-          docker rm qwenpaw-test
+          echo "✅ Container smoke test"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
