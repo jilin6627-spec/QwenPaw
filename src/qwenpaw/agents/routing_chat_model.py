@@ -89,6 +89,10 @@ class RoutingChatModel(ChatModelBase):
         structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        if tool_choice == "auto":
+            tool_choice = None
+            
         text = " ".join(
             message["content"]
             for message in messages

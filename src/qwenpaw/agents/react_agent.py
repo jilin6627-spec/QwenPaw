@@ -699,33 +699,81 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
                 )
 
         # --- Passive fallback layer (existing logic) ---
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        if tool_choice == "auto":
+            tool_choice = None
+            
+        # --- vLLM Compatibility: Client-side Agent Runtime with JSON tool parsing ---
+        from qwenpaw.runtime.tool_runtime import run_agent_loop
+        
+        system_prompt = Msg(
+            name="system",
+            role="system",
+            content="""You are an agent.
+
+When you need to use a tool, output ONLY JSON:
+
+{"action":"tool","name":"<tool_name>","args":{...}}
+
+When finished:
+
+{"action":"final","answer":"..."}
+
+Rules:
+- No explanation with JSON
+- Only JSON when calling tools"""
+        )
+        
+        try:
+            memory = self.memory.get_memory()
+            messages = [system_prompt] + memory
+            
+            async def model_call(msgs):
+                openai_msgs = []
+                for msg in msgs:
+                    if isinstance(msg, Msg):
+                        r = msg.role
+                        role = "user" if r == "user" else "assistant" if r == "assistant" else "tool"
+                        openai_msgs.append({
+                            "role": role,
+                            "content": msg.content
+                        })
+                return await self.model(
+                    messages=openai_msgs,
+                    tool_choice=tool_choice
+                )
+            
+            result_content = await run_agent_loop(model_call, messages)
+            return Msg(name="assistant", role="assistant", content=result_content)
+            
+        except Exception as e:
+            logger.error("vLLM agent loop failed: %s", e, exc_info=True)
+
         try:
             return await super()._reasoning(tool_choice=tool_choice)
-        except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
+        except Exception as e2:
+            if not self._is_bad_request_or_media_error(e2):
                 raise
+
+            if self._uses_request_time_media_normalization():
+                if get_active_model_supports_multimodal():
+                    logger.warning("Model marked multimodal but rejected media.")
+                self._set_formatter_media_strip(True)
+                try:
+                    return await super()._reasoning(tool_choice=tool_choice)
+                finally:
+                    self._set_formatter_media_strip(False)
 
             n_stripped = self._strip_media_blocks_from_memory()
             if n_stripped == 0:
                 raise
 
-            # If the model is marked as multimodal but still
-            # errored, the capability flag may be wrong.
             if get_active_model_supports_multimodal():
-                logger.warning(
-                    "Model marked multimodal but "
-                    "rejected media. "
-                    "Capability flag may be wrong.",
-                )
+                logger.warning("Model marked multimodal but rejected media.")
 
-            logger.warning(
-                "_reasoning failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
-                e,
-                n_stripped,
-            )
             return await super()._reasoning(tool_choice=tool_choice)
 
+    # pylint: disable=too-many-branches
     async def _summarizing(self) -> Msg:
         """Override summarizing with proactive media filtering,
         passive fallback, and tool_use block filtering.

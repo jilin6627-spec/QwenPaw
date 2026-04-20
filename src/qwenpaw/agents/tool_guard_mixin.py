@@ -622,6 +622,9 @@ class ToolGuardMixin:
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
     ) -> Msg:
+        # Fix: Omit tool_choice="auto" for vLLM compatibility
+        if tool_choice == "auto":
+            tool_choice = None
         """Short-circuit reasoning when awaiting guard approval.
 
         After a forced approved replay completes its ``_acting`` cycle,
