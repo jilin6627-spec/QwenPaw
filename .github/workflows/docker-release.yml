@@ -78,7 +78,7 @@ jobs:
           echo "=== 4. Test qwenpaw init generates config"
           docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "
             mkdir -p /tmp/test-init && cd /tmp/test-init
-            qwenpaw init --working-dir . --defaults --accept-security
+            qwenpaw init --defaults --accept-security
             if [ ! -f config.json ]; then
               echo 'ERROR: config.json not generated in current directory' >&2
               ls -la
