@@ -77,20 +77,19 @@ jobs:
           echo "✅ qwenpaw CLI works"
           echo "=== 4. Test qwenpaw init generates config"
           docker run --rm $IMAGE_NAME:$TAG_SHORT sh -c "
-            mkdir -p /tmp/test-init && cd /tmp/test-init
             qwenpaw init --defaults --accept-security
-            if [ ! -f config.json ]; then
-              echo 'ERROR: config.json not generated in current directory' >&2
-              ls -la
+            CONFIG_PATH=/app/working/config.json
+            if [ ! -f \$CONFIG_PATH ]; then
+              echo 'ERROR: config.json not generated at \$CONFIG_PATH' >&2
+              ls -la /app/working/
               exit 1
             fi
-            if ! grep -q 'port' config.json; then
+            if ! grep -q 'port' \$CONFIG_PATH; then
               echo 'ERROR: config.json missing port field' >&2
-              cat config.json
+              cat \$CONFIG_PATH
               exit 1
             fi
-            rm -rf /tmp/test-init
-            echo 'SUCCESS: config generated'
+            echo 'SUCCESS: config generated at /app/working/config.json'
             exit 0
           "
           if [ $? -ne 0 ]; then
