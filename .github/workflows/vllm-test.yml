@@ -117,20 +117,9 @@ jobs:
       - name: Run QwenPaw integration test
         shell: bash
         run: |
-          # TODO: Add a simple integration test that uses QwenPaw with vLLM backend
-          # For now, just verify the import and that the fix is present
-          python -c "
-          import qwenpaw
-          from qwenpaw.agents.react_agent import QwenPawAgent
-          print('✅ QwenPaw imported successfully')
-          # Check that the fix is in the code
-          import inspect
-          source = inspect.getsource(QwenPawAgent._reasoning)
-          if 'JSON tool calling' in source and 'vllm' in source.lower():
-              print('✅ vLLM compatibility code found')
-          else:
-              raise Exception('vLLM compatibility code not found in _reasoning method')
-          "
+          # Real end-to-end test: QwenPaw model wrapper -> vLLM server
+          # Tests that tool_choice="auto" is properly intercepted (no 400 error)
+          python -m pytest tests/integrated/test_vllm_integration.py -v --tb=short
 
       - name: Clean up
         if: always()
