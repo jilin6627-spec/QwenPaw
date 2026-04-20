@@ -703,7 +703,7 @@ class QwenPawAgent(ToolGuardMixin, ReActAgent):
         if tool_choice == "auto":
             tool_choice = None
             
-        # --- vLLM Compatibility: Client-side Agent Runtime with JSON tool parsing ---
+        # --- vLLM Compatibility: Client-side Agent Runtime with JSON tool calling ---
         from qwenpaw.runtime.tool_runtime import run_agent_loop
         
         system_prompt = Msg(
